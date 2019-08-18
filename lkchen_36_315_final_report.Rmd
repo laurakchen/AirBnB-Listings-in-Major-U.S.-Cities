@@ -1,0 +1,580 @@
+---
+title: "AirBnB Listings in Major U.S. Cities"
+author: 
+- "Laura Chen"
+- "lkchen"
+output: 
+  html_document:
+    toc:  true
+    toc_float:  true
+    code_folding: hide
+---
+
+```{r, warning=FALSE, echo=FALSE, message=FALSE}
+###########################
+# STYLE EDITS: IGNORE THIS
+###########################
+knitr::opts_chunk$set(message = FALSE) # include this if you don't want markdown to knit messages
+knitr::opts_chunk$set(warning = FALSE) # include this if you don't want markdown to knit warnings
+knitr::opts_chunk$set(echo=TRUE) # set echo=FALSE to hide code from html output
+knitr::opts_chunk$set(cache = T, autodep = T)
+```
+
+```{r, echo=FALSE}
+# load libraries
+library(tidyverse)
+library(pander)
+library(ggplot2)
+library(kableExtra)
+library(knitr)
+library(gridExtra)
+library(tidytext)
+library(wordcloud)
+library(reshape2)
+library(tm)
+library(shiny)
+library(leaflet)
+library(leaflet.extras)
+library(RColorBrewer)
+```
+
+```{r, echo=FALSE}
+my_theme <- theme_minimal() + 
+  theme(plot.title = element_text(hjust = 0.5, size = 16),
+                  axis.title = element_text(size = 14),
+                  axis.text = element_text(size = 14))
+```
+
+#  Introduction
+
+In this report, I chose to analyze a AirBnB dataset with listings from major 
+U.S. cities in order to understand the AirBnB market better and find out what 
+factors play a role in AirBnBs across different cities. This summer, I 
+stayed at an AirBnB in New York for the first time and was fascinated by the convenience of renting out a local property to guests around the world for 
+prices that could be cheaper than staying at hotels. Because I have not used AirBnB in multiple locations, I would like to compare AirBnB prices and features in large, urban cities that attract many AirBnB customers yearly. Through this analysis, I would be able to understand what customers look for in a temporary 
+accommodation and gain insight into housing in various major cities. 
+
+### Data
+
+```{r, echo=FALSE}
+#load data
+airbnb <- read_csv("/Users/laurachen/Desktop/36-315/airbnb.csv")
+
+airbnb <- airbnb %>% select(city, log_price, room_type, cleaning_fee, host_response_rate, review_scores_rating, number_of_reviews, first_review, last_review, host_since, latitude, longitude, description)
+
+airbnb$price <- exp(airbnb$log_price)
+airbnb <- airbnb %>% select(-log_price)
+
+# get rid of rows with missing values
+airbnb <- airbnb[complete.cases(airbnb), ]
+
+# get rid of % signs
+airbnb$host_response_rate <- as.numeric(sub("%", "", airbnb$host_response_rate))
+```
+
+```{r, echo=FALSE}
+pander(head(airbnb))
+```
+
+The AirBnB dataset is sourced from Kaggle and contains AirBnB listings from 6 major cities in the U.S. There are 48,002 observations and 14 variables in the 
+dataset. Of the 13 variables, there are 4 categorical variables and 9 continuous 
+variables. 
+
+The variables in the AirBnB dataset include:
+
++ `city`: 6 major cities (categorical)
+
++ `price`: AirBnB listing price in U.S. dollars (continuous)
+
++ `room_type`: AirBnB room type (categorical)
+
++ `cleaning_fee`: whether there is a cleaning fee (categorical)
+
++ `host_response_rate`: AirBnB host response rate percentage (continuous)
+
++ `review_scores_rating`: rating of AirBnB listing as percentage (continuous)
+
++ `number_of_reviews`: number of reviews for each listing (continuous)
+
++ `first_review`: date of first listing review (continuous)
+
++ `last_review`: date of last listing review (continuous)
+
++ `host_since`: date when person became host (continuous)
+
++ `latitude`: latitude of AirBnB listing (continuous)
+
++ `longitude`: longitude of AirBnB listing (continuous)
+
++ `description`: description of AirBnB listing (text/categorical)
+
+
+### Goals
+
+I am interested in comparing AirBnB listings in different major cities. I would also like to explore features that customers look for in an AirBnB or how people typically advertise thier properties and whether that varies depending upon 
+which major city the AirBnB is located in. Furthermore, I believe that there may 
+be a relationship between a variety of variables, such as the length of time of AirBnB reviews and the number of reviews, price and the length of time that 
+a person has been a host, and spatial clusters in regions of high population 
+density. There could also be a relationship between features that are specific 
+to certain cities and how frequently AirBnB hosts advertise those features.
+
+
+### Exploring the variables
+
+#### Continuous Variables
+
+```{r, echo=FALSE}
+price_plot <- ggplot(airbnb, aes(x = price)) + 
+  geom_histogram(fill = "coral2", binwidth = 150) + 
+  labs(title = "AirBnB Prices",
+       x = "AirBnB Price (US Dollars)",
+       y = "Frequency") + 
+  my_theme
+
+host_response_rate_plot <- ggplot(airbnb, aes(x = host_response_rate)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "AirBnB Host \n Response Rates",
+       x = "Host Response Rates (%)",
+       y = "Frequency") + 
+  my_theme
+
+review_scores_rating_plot <- ggplot(airbnb, aes(x = review_scores_rating)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "AirBnB Review Scores Rating",
+       x = "Review Scores Rating (%)",
+       y = "Frequency") + 
+  my_theme
+
+reviews_plot <- ggplot(airbnb, aes(x = number_of_reviews)) + 
+  geom_histogram(fill = "coral2", binwidth = 40) + 
+  labs(title = "AirBnB Reviews",
+       x = "Number of Reviews",
+       y = "Frequency") + 
+  my_theme
+
+grid.arrange(price_plot, host_response_rate_plot, review_scores_rating_plot, reviews_plot, ncol = 2)
+```
+
+`AirBnB Prices`: The distribution of the AirBnB prices is right-skewed and 
+has one mode at approximately $150, with over 25,000 listings.
+
+`AirBnB Host Response Rates`: The distribution of the AirBnB host response 
+rates is left-skewed and has one mode between 95-100%, with almost 40,000 listings. 
+
+`AirBnB Review Scores Rating`: The distribution of the AirBnB review scores 
+rating is left-skewed and has one mode between 95-100%, with over 20,000 listings.
+
+`AirBnB Reviews`: The distribution of the AirBnB reviews is right-skewed and 
+has one mode between 0-25 reviews, with over 27,000 listings.
+
+```{r, echo=FALSE}
+first_review_plot <- ggplot(airbnb, aes(x = first_review)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "First AirBnB Review",
+       x = "First Review Date",
+       y = "Frequency") + 
+  my_theme
+
+last_review_plot <- ggplot(airbnb, aes(x = last_review)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "Last AirBnB Review",
+       x = "Last Review Date",
+       y = "Frequency") + 
+  my_theme
+
+latitude_plot <- ggplot(airbnb, aes(x = latitude)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "AirBnB Latitude",
+       x = "Latitude",
+       y = "Frequency") + 
+  my_theme
+
+longitude_plot <- ggplot(airbnb, aes(x = longitude)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "AirBnB Longitude",
+       x = "Longitude",
+       y = "Frequency") + 
+  my_theme
+
+grid.arrange(first_review_plot, last_review_plot, latitude_plot, longitude_plot, ncol = 2)
+```
+
+`First AirBnB Review`: The distribution of the dates of first AirBnB reviews is 
+left-skewed and has one mode at around 2017, with over 6000 listings.
+
+`Last AirBnB Review`: The distribution of the dates of last AirBnB reviews is 
+left-skewed and has two modes at early 2017 and near the end of 2017. 
+
+`AirBnB Latitude`: The distribution of AirBnB latitude is more scattered with 6 clusters, which makes sense as there are 6 major cities in this dataset.
+
+`AirBnB Longitude`: The distribution of AirBnB longitude is more scattered with 
+6 clusters, which makes sense as well since there are 6 major cities in this 
+dataset.
+
+```{r, echo=FALSE}
+host_since_plot <- ggplot(airbnb, aes(x = host_since)) + 
+  geom_histogram(fill = "coral2") + 
+  labs(title = "AirBnB Host Since",
+       x = "Date",
+       y = "Frequency") + 
+  my_theme
+host_since_plot
+```
+
+`AirBnB Host Since`: The distribution of the length of time that someone has 
+been a host is slightly left-skewed and has one mode at around mid-2017, with 
+over 3500 listings.
+
+
+#### Categorical Variables
+
+```{r, echo=FALSE}
+city_plot <- ggplot(airbnb, aes(x = city)) + 
+  geom_bar(fill = "coral2") + 
+  labs(title = "AirBnB Listings of Major Cities",
+       x = "Major Cities",
+       y = "Number of Listings") + 
+  my_theme 
+
+room_type_plot <- ggplot(airbnb, aes(x = room_type)) + 
+  geom_bar(fill = "coral2") + 
+  labs(title = "AirBnB Room Types",
+       x = "Room Types",
+       y = "Number of Listings") + 
+  my_theme +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+cleaning_fee_plot <- ggplot(airbnb, aes(x = cleaning_fee)) + 
+  geom_bar(fill = "coral2") + 
+  labs(title = "AirBnB Cleaning Fee",
+       x = "Cleaning Fee Exists",
+       y = "Number of Listings") + 
+  my_theme
+
+grid.arrange(room_type_plot, cleaning_fee_plot, ncol = 2)
+
+city_plot
+```
+
+`AirBnB Room Types`: The type of AirBnB room that has the highest number of 
+listings is entire home/apartment, with over 27,000 listings. A shared room 
+type is least popular, with the lowest number of listings.
+
+`AirBnB Cleaning Fee`: There is a higher number of AirBnB listings with a 
+cleaning fee, at almost 40,000 listings. There are only less than 10,000 
+listings with no cleaning fee.
+
+`AirBnB Listings of Major Cities`: New York City has the highest number of 
+AirBnB listings at almost 20,000 listings, with Los Angeles being the next highest. The other major cities have roughly the same number of listings at 
+a little over 2500 listings.
+
+**Note:** Description's marginal distribution was not displayed as it is in the 
+form of text that describes each AirBnB listing. 
+
+#### EDA: Correlation of Variables
+
+```{r, echo=FALSE}
+# create correlation matrix for continuous variables
+airbnb_cont <- airbnb %>% select(host_response_rate, review_scores_rating, number_of_reviews, latitude, longitude, price)
+
+# compute numbers of years of host_since, first_review, last_review
+host_since_num <- as.numeric(difftime(as.Date("2019-06-01"), airbnb$host_since, units = "weeks")) / 52.25
+
+first_review_num <- as.numeric(difftime(as.Date("2019-06-01"), airbnb$first_review, units = "weeks")) / 52.25
+
+last_review_num <- as.numeric(difftime(as.Date("2019-06-01"), 
+                              airbnb$last_review, units = "weeks")) / 52.25
+
+airbnb_cont$host_since_num <- host_since_num
+airbnb_cont$first_review_num <- first_review_num
+airbnb_cont$last_review_num <- last_review_num
+
+# correlation matrix
+cor_matrix <- cor(airbnb_cont)
+
+cor_mat_melt <- melt(cor_matrix)
+
+cor_matrix_plot <- ggplot(cor_mat_melt,
+       aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile() +
+  labs(x = "", 
+       y = "",
+       title = "Correlations of AirBnB Continuous Variables",
+       fill = "Correlation") +
+  my_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text = element_text(size = 10)) + 
+  scale_fill_gradient2(low = "#9999ff", mid = "white", high = "#ff8080") +
+  geom_text(aes(x = Var1, y = Var2, label = round(value, 2)), 
+            size = 5) 
+cor_matrix_plot
+```
+
+From the correlation matrix of the continuous variables, we see that latitude is 
+highly correlated with longitude, which is reasonable since they are pairs of 
+coordinates. The next highly correlated pairs of variables are 
+(first_review_num, host_since_num) and (first_review_num, number_of_reviews). 
+It makes sense that they are correlated as they are related to each other in 
+terms of AirBnB reviews. The most negatively correlated pairs of variables are 
+(latitude, last_review_num) and (longitude, last_review_num). 
+
+
+# Methods
+
+## Questions of Interest
+
+In this section, I will list several questions of interest which are divided 
+into 3 main exploratory categories to help us analyze this dataset further. 
+
++ **AirBnB Market and Demand Analysis**
+    + `How do price and other factors vary by city?`:
+        I am interested in seeing whether AirBnB prices will differ across 
+        locations and whether other variables in the dataset will have similar 
+        trends.
+        + `Price and Room Type`: I believe New York City will have the highest 
+        price, on average, because housing prices in that area is notorious for 
+        being expensive.
+        + `Price and Length of Host Time`: With regards to the relationship between variables such as the amount of time a person has been a host and the price, I think the longer someone has been an AirBnb host, the higher the price.
+        + `Review Score Ratings and Cleaning Fee`: Lastly, I would like to analyze the relationship between review score ratings and cleaning fee for each city to see if having a cleaning fee will result in higher review ratings. I believe it will because having a cleaning fee will guarantee a cleaner home for guests to live in and they will likely be much more satisfied with the AirBnB overall.
+        
+    + `How does AirBnB demand fluctuate over the years?`: I would like to understand how the AirBnB market is changing over these past few years and see 
+if there is a difference depending upon the major city. I believe AirBnB has been growing over time as it is becoming a very popular tool for temporary living around the world. I think this is true for all major cities since there are so many people coming in for various purposes and needing an accommodation.
+
++ **Spatial Analysis**
+    + `Do AirBnB listings form spatial clusters across cities depending on region?`: I would like to see if there are large clusters of AirBnB homes geographically and whether the cluster is bigger in areas of higher population density. I believe AirBnB homes will form large clusters in areas that are close to points of attraction and downtown regardless of city.
+    
++ **Customer Perspective Analysis**
+    + `What kind of customer expectations exist and does it differ depending upon region?`: I am interested in understanding what sort of expectations customers 
+hold for an AirBnB and how AirBnB hosts respond to customer demand in return. I 
+think AirBnB hosts may focus on advertising positive features such as nearby 
+transit, points of interest, and restaurants. They may also emphasize the 
+quality of their properties and give lots of information about the home in 
+general.
+
+Now that the questions of interest have been laid out, I will begin exploring 
+the dataset through graphics and visualization. 
+
+### AirBnB Market and Demand Analysis
+
+```{r, echo=FALSE}
+# bar chart comparing average price and city and room type
+mean_price <- airbnb %>%
+  group_by(city, room_type) %>%
+  summarise("average_price" = round(mean(price), digits = 2))
+  
+price_city_bar <- ggplot(mean_price, aes(x = city, y = average_price, fill = room_type)) + 
+  geom_col(position = "dodge") + 
+  labs(title = "Average AirBnB Prices by City and Room Type",
+       x = "City",
+       y = "Average Price (US Dollars)",
+       fill = "Room Type",
+       caption = "Source: Kaggle AirBnB Dataset") + 
+  my_theme + 
+  theme(legend.title = element_text(size = 15),
+        legend.text = element_text(size = 10))
+price_city_bar
+```
+
+I started off by exploring the AirBnB market through this side by side bar chart displaying the distribution of average prices by city and room type. From the graphic, San Francisco has the highest price on average, with regards to entire homes/apartments and private rooms. One interesting thing to note is that shared rooms appear to be more expensive than private rooms for Boston, contrary to other cities. Overall, there does not appear to be much variation for private 
+and shared rooms as there is for entire homes/apartments.
+
+```{r, echo=FALSE}
+# scatterplot comparing price and host_since by city
+host_since_yr_diff <- as.numeric(difftime("2019-06-01", airbnb$host_since, 
+                                          units = "weeks")) / 52.25
+airbnb$host_since_diff <- host_since_yr_diff
+
+price_host_plot <- ggplot(airbnb, aes(x = host_since_diff, 
+  y = price)) + 
+  geom_point(alpha = 0.3, col = "coral2") + 
+  facet_wrap(city ~ .) +
+  geom_smooth(method = lm, se = FALSE) +
+  labs(title = "AirBnB Price vs Host Time Length by City",
+       x = "Difference in Years of Host Time Length",
+       y = "Price (US Dollars)",
+       caption = "Source: Kaggle AirBnB Dataset") + 
+  my_theme 
+price_host_plot
+```
+
+| City  | Slope | p-value |
+| --------  |-------------| --------|
+| Boston     | 5.221  | 0.000157 |  
+| Chicago    | 3.207  | 0.00408 |
+| DC         | 1.949  | **0.0821** |
+| LA         | 4.919  | 2.81e-11 |
+| NYC        | 1.7507 | 9.17e-05 |
+| SF         | 2.348  | **0.064** |
+
+I created a scatterplot comparing AirBnB price to the difference in years of 
+the length of host time to see whether the two variables are correlated with 
+one another. From the graphic, it appears that there is not a significant 
+relationship between price and host time length regardless of city as the 
+slopes of the regression lines seem to be 0. However, after computing linear
+regression statistics and making a table of the slope and p-value statistic for each city, I found that most of the p-values are less than the 0.05 significance 
+level. This means that we reject the null hypothesis stating that there is no 
+relationship between price and length of host time. Hence, it appears that 
+there is a significant relationship between price and length of host time for 
+most of the major cities, except for DC and San Francisco as their p-value 
+statistics are greater than 0.05. Since the slopes are positive, the AirBnB 
+price increases as the length of host time increases.
+
+```{r, echo=FALSE}
+# faceted density plot comparing review ratings by city and cleaning fee
+cleaning_reviews_plot <- ggplot(airbnb, aes(x = review_scores_rating)) + 
+  geom_density(aes(col = cleaning_fee), alpha = 0.2) + 
+  facet_wrap(city ~ .) +
+  labs(title = "AirBnB Review Ratings by City and Cleaning Fee",
+       x = "AirBnB Review Score Rating (%)",
+       y = "Density",
+       col = "Cleaning Fee \n Exists") + 
+  my_theme + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+cleaning_reviews_plot
+```
+
+I created a faceted density plot of AirBnB review score ratings for each city 
+and displayed two distributions that represent whether there is a cleaning fee 
+or not. This allows me to observe whether or not there are higher review ratings 
+associated with a cleaning fee. Based on the graphic, it appears that there are more review ratings that are related to a cleaning fee. In addition, there is a
+peak between 95-100% of AirBnB review scores for each city, and the cleaning fee 
+distribution has the highest peak on all facets. Another interesting thing to 
+note is that there is a smaller peak at 80% of AirBnB review scores for each 
+city regardless of the existence of a cleaning fee. This may be due to guests 
+not feeling completely satisfied with the AirBnB and choosing to rate it at a 
+"B" average instead. But in general, there are more listings with high ratings 
+in each city since the density is higher when the review scores are above 80%.
+
+```{r, echo=FALSE, fig.height = 8}
+# boxplot comparing difference in review dates and number of reviews by city
+airbnb$diff_reviews <- as.numeric(difftime(airbnb$last_review, airbnb$first_review, units = "weeks")) / 52.25
+
+airbnb$diff_reviews_factor <- cut(airbnb$diff_reviews, breaks = c(-1, 4, 6, 9),
+                                  labels = c("0-3", "3-6", "6-9"))
+
+diff_reviews_plot <- ggplot(airbnb, aes(x = diff_reviews_factor,
+  y = number_of_reviews)) + 
+  geom_boxplot() +
+  facet_wrap(city ~ .) + 
+  labs(title = "Number of AirBnB Reviews and Difference (Years) of Review 
+       Dates by City",
+       x = "Difference in Years Between First and Last Review Dates",
+       y = "Number of AirBnB Reviews") +
+  my_theme 
+diff_reviews_plot
+```
+
+In order to analyze AirBnB demand fluctuation over time, I created a faceted 
+boxplot that compares the number of reviews to the difference in years between 
+the first and last review dates for each city. According to this graphic, the 
+median number of reviews increases as the difference in time increases, as 
+expected since one would assume that the number of reviews would accumulate over 
+time. However, I do notice that the gaps between the medians seems to be fairly 
+small, especially between 3-6 and 6-9 years. So, it is possible that AirBnB 
+customers are increasing rapidly over time and could be a sign that the 
+market is growing at least in terms of the increasing number of reviews given 
+the time. 
+
+### Spatial Analysis
+
+**How to load RShiny map**: To analyze AirBnBs geographically in each city, I created an interactive map using RShiny. To load the map, please run app.R. The map does take a while to load (please be patient). Once the map loads, you will see a U.S. map with label markers that you may click on. Click either marker to view clusters of AirBnbs in the West or Northeast region. After clicking the markers, the cluster will spread and you may continue to click until the map zooms to the original AirBnB data point. At that point, you may click the label and view the price and review score rating of the AirBnB data point. After that, to look at another city's spatial distribution, please zoom out on the map and locate the city of your choice.
+
+From the RShiny map, it appears that each city's AirBnBs are mainly clustered 
+in large groups centered near the downtown region or areas of high population 
+density. We see fewer AirBnBs located in mountains or rural areas. This is 
+expected as there are more people in highly populated areas and would be more 
+likely to rent out their properties to guests. It also seems like the price 
+tends to be higher in downtown regions and areas that are near points of interest. 
+
+### Customer Perspective Analysis
+
+```{r, echo=FALSE}
+# word cloud for each city
+airbnb.text <- data.frame(airbnb$description, airbnb$city)
+colnames(airbnb.text) <- c("description", "city")
+
+airbnb.text <- airbnb.text %>%
+  mutate(description = as.character(description))
+
+airbnb_word_count <- airbnb.text %>%
+  group_by(city) %>%
+  unnest_tokens(input = description, output = word)
+
+word_count_city <- airbnb_word_count %>%
+  group_by(city, word) %>%
+  summarise(count = n()) %>%
+  arrange(desc(count))
+
+col_pal <- c("#b30000", "#e34a33", "#fc8d59", "darkgoldenrod2")
+###########################
+
+par(mar = rep(0.8, 4), mfrow = c(2, 3), xaxs = "i")
+
+set.seed(40)
+word_count_city %>%
+  filter(city == "Boston") %>%
+  anti_join(stop_words) %>%
+  with(wordcloud(words = word, freq = count, max.words = 40, 
+                 colors = col_pal, scale = c(1.7, 1.2)))
+title(main = list("Most Common Words in Boston", col = "black"))
+
+set.seed(40)
+word_count_city %>%
+  filter(city == "Chicago") %>%
+  anti_join(stop_words) %>%
+  with(wordcloud(words = word, freq = count, max.words = 40, 
+                 colors = col_pal, scale = c(1.7, 1.2)))
+title(main = list("Most Common Words in Chicago", col = "black"))
+
+set.seed(40)
+word_count_city %>%
+  filter(city == "DC") %>%
+  anti_join(stop_words) %>%
+  with(wordcloud(words = word, freq = count, max.words = 40,
+                 colors = col_pal, scale = c(1.7, 1.2)))
+title(main = list("Most Common Words in DC", col = "black"))
+
+set.seed(40)
+word_count_city %>%
+  filter(city == "LA") %>%
+  anti_join(stop_words) %>%
+  with(wordcloud(words = word, freq = count, max.words = 40,
+                 colors = col_pal, scale = c(1.7, 1.2)))
+title(main = list("Most Common Words in LA", col = "black"))
+
+set.seed(40)
+word_count_city %>%
+  filter(city == "NYC") %>%
+  anti_join(stop_words) %>%
+  with(wordcloud(words = word, freq = count, max.words = 40,
+                 colors = col_pal, scale = c(1.7, 1.2)))
+title(main = list("Most Common Words in NYC", col = "black"))
+
+set.seed(40)
+word_count_city %>%
+  filter(city == "SF") %>%
+  anti_join(stop_words) %>%
+  with(wordcloud(words = word, freq = count, max.words = 40,
+                 colors = col_pal, scale = c(1.7, 1.2)))
+title(main = list("Most Common Words in SF", col = "black"))
+```
+
+After analyzing the AirBnB market and geographic distibution, I focused on looking at customer expectations by analyzing what hosts typically advertise in 
+their listing. I created a word cloud for each city showing the most common words in the description for the AirBnB listings. Above, the darker colors correspond to a higher frequency of words. It appears that the most common categories involve attractions (through words like Hollywood, Manhattan), transportation (through words like metro, bus, station), and also convenience of the home (through words like access, clean, walking, location). In addition, cities in the northeast tend to have more common words with regards to region, such as bars, trains, etc. These words are more typical of the northeast than compared to cities in the West, like Los Angeles or San Francisco.
+
+# Results
+
+Overall, I found that prices typically vary in different cities, although there is not as much variation for private and shared rooms. I was surprised to learn that San Francisco had the highest average AirBnB prices, but that may be due to the exorbitant housing prices in San Francisco. There was generally a 
+significant relationship between price and the length of host time and it appears that AirBnB review score ratings are higher when there is a cleaning fee. Furthermore, the spatial distribution of AirBnBs in each city showed that AirBnBs tend to cluster in areas of high population density, as expected. We can also infer that the Airbnb market may be growing over time since there are a lot of reviews in recent years. Lastly, it seems that customers typically try to look for a convenient place to live that is very accessible since that is what hosts usually advertise. 
+
+
+# Discussion
+
+There were some limitations to this analysis as I did not have access to data from previous years, so it is hard to infer whether AirBnB is really growing over time or not. Furthermore, since some variables contained missing values, I removed them from the dataset during the initial cleaning procedure. Therefore, this analysis may not be a complete representation of the dataset. But in the future, I would try to expand my analysis to include more cities and variables that affect AirBnB prices. For example, I could look at AirBnBs by neighborhood to see if there are any existing trends or gather customer reviews to see what they liked or disliked about AirBnB. Finally, I would like to build more 
+predictive models using some of the variables analyzed in this dataset. 
+
+
+## Sources
+
++ Kaggle AirBnB Dataset: https://www.kaggle.com/rudymizrahi/airbnb-listings-in-major-us-cities-deloitte-ml#train.csv
+  

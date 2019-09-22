@@ -10,7 +10,7 @@ R, RShiny
 
 ## Report 
 
-See 'lkchen_36_315_final_report.html' for full report and analysis.
+Knit 'lkchen_36_315_final_report.rmd' to HTML for full report and analysis.
 
 ## Source:
 
